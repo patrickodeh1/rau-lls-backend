@@ -1,80 +1,107 @@
-import gspread
+from googleapiclient.discovery import build
 from google.oauth2.service_account import Credentials
-import os
 from django.conf import settings
-from datetime import datetime
+
+from .models import Appointment
+
 
 def get_google_sheets_client():
-    scopes = [
-        "https://www.googleapis.com/auth/spreadsheets",
-        "https://www.googleapis.com/auth/drive",
-    ]
+    """Create and return Google Sheets API client."""
     creds = Credentials.from_service_account_file(
-        os.getenv('GOOGLE_SHEETS_CREDENTIALS'),
-        scopes=scopes
+        settings.GOOGLE_SHEETS_CREDENTIALS_FILE,
+        scopes=["https://www.googleapis.com/auth/spreadsheets"]
     )
-    return gspread.authorize(creds)
+    return build("sheets", "v4", credentials=creds)
 
-def get_qualified_lead(sheet_id, tab_name, agent_id):
-    client = get_google_sheets_client()
-    try:
-        sheet = client.open_by_key(sheet_id).worksheet(tab_name)
-        data = sheet.get_all_records()
-        for index, row in enumerate(data, start=2):
-            disposition = row.get('Disposition', '')
-            if disposition not in ['Called', 'NA', 'NI', 'DNC', 'Booked']:
-                if disposition == 'CB':
-                    cb_date = row.get('CB_Date', '')
-                    if cb_date and cb_date < datetime.now().strftime('%Y-%m-%d'):
-                        sheet.update_cell(index, sheet.find('Lock_Status').col, f'In Progress by Agent {agent_id}')
-                        row['row_index'] = index
-                        row['agent_script'] = "Hello, this is your script..."
-                        row['history'] = row.get('Notes/History', '')
-                        return row
-                else:
-                    sheet.update_cell(index, sheet.find('Lock_Status').col, f'In Progress by Agent {agent_id}')
-                    row['row_index'] = index
-                    row['agent_script'] = "Hello, this is your script..."
-                    row['history'] = row.get('Notes/History', '')
-                    return row
-        return None
-    except Exception as e:
-        raise Exception(f"Failed to fetch lead: {str(e)}")
-
-def update_lead_disposition(sheet_id, tab_name, row_index, disposition, agent_id, extra_data=None):
-    client = get_google_sheets_client()
-    try:
-        sheet = client.open_by_key(sheet_id).worksheet(tab_name)
-        headers = sheet.row_values(1)
-        row_data = sheet.row_values(row_index)
-        row_dict = dict(zip(headers, row_data))
-
-        row_dict['Disposition'] = disposition
-        row_dict['Agent_ID'] = str(agent_id)
-        row_dict['Timestamp'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-        row_dict['Lock_Status'] = ''  # Release lock
-
-        if extra_data:
-            row_dict.update(extra_data)
-
-        # Update the row
-        sheet.update(f'A{row_index}:{chr(65 + len(headers) - 1)}{row_index}', [list(row_dict.values())])
-    except Exception as e:
-        raise Exception(f"Failed to update lead: {str(e)}")
 
 def verify_sheet_connection(sheet_id, tab_name):
+    """Verify Google Sheet + tab exist."""
     try:
         client = get_google_sheets_client()
-        sheet = client.open_by_key(sheet_id).worksheet(tab_name)
-        headers = sheet.row_values(1)
-        required_columns = [
-            'Business Name', 'Phone Number', 'Message', 'Notes/History',
-            'Disposition', 'CB_Date', 'CB_Time', 'Appointment_Date',
-            'Appointment_Time', 'Appointment_Notes', 'Agent_ID', 'Timestamp', 'Lock_Status'
-        ]
-        missing_columns = [col for col in required_columns if col not in headers]
-        if missing_columns:
-            return False, f"Missing columns: {', '.join(missing_columns)}"
-        return True, "Connected successfully!"
+        sheet_metadata = client.spreadsheets().get(spreadsheetId=sheet_id).execute()
+        sheets = [s["properties"]["title"] for s in sheet_metadata["sheets"]]
+        if tab_name not in sheets:
+            return False, f"Tab '{tab_name}' not found in sheet"
+        return True, "Connection verified"
     except Exception as e:
-        return False, f"Connection failed: {str(e)}"
+        return False, str(e)
+
+
+def update_lead_disposition(sheet_id, tab_name, row_index, disposition, agent_id, extra_data):
+    """Write lead disposition back to Google Sheet."""
+    client = get_google_sheets_client()
+    sheet_range = f"{tab_name}!A{row_index}:Z{row_index}"
+    values = [[disposition, str(agent_id), str(extra_data)]]
+    client.spreadsheets().values().update(
+        spreadsheetId=sheet_id,
+        range=sheet_range,
+        valueInputOption="RAW",
+        body={"values": values}
+    ).execute()
+
+
+# -------------------------
+# Appointment helpers
+# -------------------------
+def add_appointment_to_sheet(sheet_id, tab_name, appointment: Appointment):
+    """Append a new appointment row in Google Sheet."""
+    client = get_google_sheets_client()
+    values = [[
+        str(appointment.id),
+        appointment.owner.name,
+        appointment.lead.data if appointment.lead else "",
+        str(appointment.date),
+        str(appointment.time),
+        appointment.notes or "",
+        appointment.status,
+        str(appointment.created_at),
+    ]]
+    client.spreadsheets().values().append(
+        spreadsheetId=sheet_id,
+        range=tab_name,
+        valueInputOption="RAW",
+        insertDataOption="INSERT_ROWS",
+        body={"values": values}
+    ).execute()
+
+
+def update_appointment_in_sheet(sheet_id, tab_name, appointment: Appointment):
+    """
+    Update an appointment row.
+    NOTE: This assumes row mapping is tracked separately — you may need
+    to store the row index in the Appointment model for precise updates.
+    """
+    client = get_google_sheets_client()
+    # For now: find row by appointment ID (requires reading the sheet)
+    sheet_data = client.spreadsheets().values().get(
+        spreadsheetId=sheet_id,
+        range=tab_name
+    ).execute()
+
+    rows = sheet_data.get("values", [])
+    row_index = None
+    for i, row in enumerate(rows, start=1):
+        if row and row[0] == str(appointment.id):
+            row_index = i
+            break
+
+    if not row_index:
+        raise Exception("Appointment not found in sheet")
+
+    sheet_range = f"{tab_name}!A{row_index}:H{row_index}"
+    values = [[
+        str(appointment.id),
+        appointment.owner.name,
+        appointment.lead.data if appointment.lead else "",
+        str(appointment.date),
+        str(appointment.time),
+        appointment.notes or "",
+        appointment.status,
+        str(appointment.updated_at),
+    ]]
+    client.spreadsheets().values().update(
+        spreadsheetId=sheet_id,
+        range=sheet_range,
+        valueInputOption="RAW",
+        body={"values": values}
+    ).execute()

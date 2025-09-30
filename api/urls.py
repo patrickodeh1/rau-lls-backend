@@ -1,23 +1,35 @@
 from django.urls import path
-from .views import LoginView, UserManagementView, SheetConfigView, LeadView, DispositionView, ResetPasswordView, LeadQueueView
+from .views import (
+    LoginView,
+    UserManagementView,
+    SheetConfigView,
+    LeadQueueView,
+    DispositionView,
+    ResetPasswordView,
+    AvailabilityView,
+    AppointmentView,
+)
 
 urlpatterns = [
-    path('login/', LoginView.as_view(), name='login'),
-    path('users/', UserManagementView.as_view(), name='user-management'),
-    path('users/<uuid:user_id>/', UserManagementView.as_view(), name='user-detail'),
-    path('sheet-config/', SheetConfigView.as_view(), name='sheet-config'),
-    path('leads/', LeadView.as_view(), name='leads'),
-    path('disposition/', DispositionView.as_view(), name='disposition'),
-]
+    # --- Auth ---
+    path("login/", LoginView.as_view(), name="login"),
+    path("reset-password/", ResetPasswordView.as_view(), name="reset-password"),
 
-urlpatterns += [
-    path('users/reset-password/', ResetPasswordView.as_view(), name='reset-password'),
-]
+    # --- Users ---
+    path("users/", UserManagementView.as_view(), name="user-list-create"),
+    path("users/<uuid:user_id>/", UserManagementView.as_view(), name="user-update"),
 
-urlpatterns += [
-    path('leads/next/', LeadView.as_view(), name='leads-next'),
-]
+    # --- Google Sheets Config ---
+    path("sheet-config/", SheetConfigView.as_view(), name="sheet-config"),
 
-urlpatterns += [
-    path('leads/queue/', LeadQueueView.as_view(), name='leads-queue'),
+    # --- Leads ---
+    path("leads/queue/", LeadQueueView.as_view(), name="lead-queue"),
+    path("leads/disposition/", DispositionView.as_view(), name="lead-disposition"),
+
+    # --- Availability ---
+    path("availability/", AvailabilityView.as_view(), name="availability"),
+
+    # --- Appointments ---
+    path("appointments/", AppointmentView.as_view(), name="appointments"),
+    path("appointments/<uuid:appointment_id>/", AppointmentView.as_view(), name="appointment-update"),
 ]
