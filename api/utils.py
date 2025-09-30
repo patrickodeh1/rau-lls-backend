@@ -20,20 +20,22 @@ def get_qualified_lead(sheet_id, tab_name, agent_id):
     try:
         sheet = client.open_by_key(sheet_id).worksheet(tab_name)
         data = sheet.get_all_records()
-        for index, row in enumerate(data, start=2):  # Start from row 2 (header row 1)
+        for index, row in enumerate(data, start=2):
             disposition = row.get('Disposition', '')
             if disposition not in ['Called', 'NA', 'NI', 'DNC', 'Booked']:
                 if disposition == 'CB':
                     cb_date = row.get('CB_Date', '')
                     if cb_date and cb_date < datetime.now().strftime('%Y-%m-%d'):
-                        # Lock the lead
                         sheet.update_cell(index, sheet.find('Lock_Status').col, f'In Progress by Agent {agent_id}')
                         row['row_index'] = index
+                        row['agent_script'] = "Hello, this is your script..."
+                        row['history'] = row.get('Notes/History', '')
                         return row
                 else:
-                    # Lock the lead
                     sheet.update_cell(index, sheet.find('Lock_Status').col, f'In Progress by Agent {agent_id}')
                     row['row_index'] = index
+                    row['agent_script'] = "Hello, this is your script..."
+                    row['history'] = row.get('Notes/History', '')
                     return row
         return None
     except Exception as e:
