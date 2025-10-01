@@ -32,7 +32,7 @@ SECRET_KEY = os.getenv('SECRET_KEY')
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = os.getenv('DEBUG', 'False') == 'False'
 
-ALLOWED_HOSTS = ['https://rau-lls-backend.onrender.com']
+ALLOWED_HOSTS = ['https://rau-lls-backend.onrender.com', '*']
 
 
 # Application definition
@@ -63,7 +63,8 @@ MIDDLEWARE = [
 
 CORS_ALLOWED_ORIGINS = [
     "http://localhost:3000",  # Frontend development URL
-    "https://rau-lls-frontend.vercel.app"
+    "https://rau-lls-frontend.vercel.app",
+    "*"
 ]
 
 CORS_ALLOW_CREDENTIALS = True
