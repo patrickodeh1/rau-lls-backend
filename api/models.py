@@ -1,8 +1,6 @@
 import uuid
 from django.db import models
 from django.contrib.auth.models import AbstractBaseUser, BaseUserManager, PermissionsMixin
-from django.conf import settings
-from django.utils import timezone
 
 
 # ----------------------
@@ -33,9 +31,13 @@ class UserManager(BaseUserManager):
 
 
 class User(AbstractBaseUser, PermissionsMixin):
+    """
+    Custom User model for RAU-LLS.
+    Supports both admin and agent roles.
+    """
     ROLE_CHOICES = [
-        ("agent", "Agent"),   # Business owner / sales agent
-        ("admin", "Admin"),   # System admin
+        ("agent", "Agent"),
+        ("admin", "Admin"),
     ]
     STATUS_CHOICES = [
         ("active", "Active"),
@@ -45,7 +47,7 @@ class User(AbstractBaseUser, PermissionsMixin):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     name = models.CharField(max_length=255)
     email = models.EmailField(unique=True)
-    password = models.CharField(max_length=255)  # Hashed password
+    password = models.CharField(max_length=255)
     role = models.CharField(max_length=10, choices=ROLE_CHOICES, default="agent")
     status = models.CharField(max_length=10, choices=STATUS_CHOICES, default="active")
     last_login = models.DateTimeField(null=True, blank=True)
@@ -61,94 +63,41 @@ class User(AbstractBaseUser, PermissionsMixin):
     USERNAME_FIELD = "email"
     REQUIRED_FIELDS = ["name"]
 
+    class Meta:
+        ordering = ["-created_at"]
+
     def __str__(self):
-        return f"{self.name} ({self.email})"
+        return f"{self.name} ({self.email}) - {self.role}"
 
 
 # ----------------------
 # Google Sheet Config
 # ----------------------
 class SheetConfig(models.Model):
+    """
+    Stores the Google Sheet configuration for lead data source.
+    Only one configuration should exist (singleton pattern).
+    """
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    sheet_id = models.CharField(max_length=255)   # Google Sheet ID
-    tab_name = models.CharField(max_length=255)   # Worksheet/Tab name
+    sheet_id = models.CharField(max_length=255, help_text="Google Sheet ID from URL")
+    tab_name = models.CharField(max_length=255, help_text="Worksheet/Tab name within the sheet")
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "Sheet Configuration"
+        verbose_name_plural = "Sheet Configuration"
 
     def __str__(self):
         return f"Sheet: {self.sheet_id}, Tab: {self.tab_name}"
 
-
-# ----------------------
-# Leads (from Google Sheets)
-# ----------------------
-class Lead(models.Model):
-    STATUS_CHOICES = [
-        ("NEW", "New"),
-        ("CONTACTED", "Contacted"),
-        ("BOOKED", "Booked"),
-        ("CANCELLED", "Cancelled"),
-    ]
-
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    external_id = models.CharField(max_length=255, unique=True)  # Maps to Google Sheet row
-    data = models.JSONField(default=dict)  # Flexible storage for sheet row data
-    locked_by = models.ForeignKey(
-        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL
-    )
-    locked_at = models.DateTimeField(null=True, blank=True)
-    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default="NEW")
-
-    def __str__(self):
-        return f"Lead {self.external_id} - {self.status}"
-
-
-# ----------------------
-# Agent Availability
-# ----------------------
-class Availability(models.Model):
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    agent = models.ForeignKey(
-        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="availabilities"
-    )
-    date = models.DateField()
-    start_time = models.TimeField()
-    end_time = models.TimeField()
-
-    class Meta:
-        unique_together = ("agent", "date", "start_time", "end_time")
-
-    def __str__(self):
-        return f"{self.agent.name} - {self.date} {self.start_time}-{self.end_time}"
-
-
-# ----------------------
-# Appointment Booking
-# ----------------------
-class Appointment(models.Model):
-    STATUS_CHOICES = [
-        ("scheduled", "Scheduled"),
-        ("completed", "Completed"),
-        ("cancelled", "Cancelled"),
-    ]
-
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    owner = models.ForeignKey(
-        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="appointments"
-    )
-    lead = models.ForeignKey(
-        Lead, on_delete=models.CASCADE, related_name="appointments"
-    )
-    date = models.DateField()
-    time = models.TimeField()
-    notes = models.TextField(blank=True, null=True)
-    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default="scheduled")
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
-
-    def cancel(self):
-        self.status = "cancelled"
-        self.save()
-
-    def __str__(self):
-        return f"Appointment for {self.owner.name} on {self.date} at {self.time}"
+    def save(self, *args, **kwargs):
+        """Ensure only one config exists (singleton)."""
+        if not self.pk and SheetConfig.objects.exists():
+            # If trying to create new but one exists, update the existing one
+            existing = SheetConfig.objects.first()
+            existing.sheet_id = self.sheet_id
+            existing.tab_name = self.tab_name
+            existing.save()
+            return existing
+        return super().save(*args, **kwargs)

@@ -6,30 +6,21 @@ from .views import (
     LeadQueueView,
     DispositionView,
     ResetPasswordView,
-    AvailabilityView,
-    AppointmentView,
 )
 
 urlpatterns = [
     # --- Auth ---
     path("login/", LoginView.as_view(), name="login"),
-    path("reset-password/", ResetPasswordView.as_view(), name="reset-password"),
-
-    # --- Users ---
+    
+    # --- User Management (Admin) ---
     path("users/", UserManagementView.as_view(), name="user-list-create"),
-    path("users/<uuid:user_id>/", UserManagementView.as_view(), name="user-update"),
-
-    # --- Google Sheets Config ---
+    path("users/<uuid:user_id>/", UserManagementView.as_view(), name="user-detail"),
+    path("reset-password/", ResetPasswordView.as_view(), name="reset-password"),
+    
+    # --- Google Sheets Config (Admin) ---
     path("sheet-config/", SheetConfigView.as_view(), name="sheet-config"),
-
-    # --- Leads ---
-    path("leads/queue/", LeadQueueView.as_view(), name="lead-queue"),
+    
+    # --- Lead Processing (Agent) ---
+    path("leads/next/", LeadQueueView.as_view(), name="lead-next"),
     path("leads/disposition/", DispositionView.as_view(), name="lead-disposition"),
-
-    # --- Availability ---
-    path("availability/", AvailabilityView.as_view(), name="availability"),
-
-    # --- Appointments ---
-    path("appointments/", AppointmentView.as_view(), name="appointments"),
-    path("appointments/<uuid:appointment_id>/", AppointmentView.as_view(), name="appointment-update"),
 ]
