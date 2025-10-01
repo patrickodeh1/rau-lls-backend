@@ -7,18 +7,28 @@ from django.utils import timezone
 
 
 def get_google_sheets_client():
-    """Create and return Google Sheets API client using JSON credentials from env."""
+    """Create and return Google Sheets API client."""
     try:
-        # Parse credentials from environment variable (JSON string)
-        creds_json = json.loads(settings.GOOGLE_SHEETS_CREDENTIALS)
-        creds = Credentials.from_service_account_info(
-            creds_json,
-            scopes=["https://www.googleapis.com/auth/spreadsheets"]
-        )
+        # Check if GOOGLE_SHEETS_CREDENTIALS is a file path or JSON string
+        creds_path_or_json = settings.GOOGLE_SHEETS_CREDENTIALS
+        
+        # If it's a file path (ends with .json or is a valid path)
+        if creds_path_or_json.endswith('.json') or os.path.isfile(creds_path_or_json):
+            creds = Credentials.from_service_account_file(
+                creds_path_or_json,
+                scopes=["https://www.googleapis.com/auth/spreadsheets"]
+            )
+        else:
+            # It's a JSON string
+            creds_json = json.loads(creds_path_or_json)
+            creds = Credentials.from_service_account_info(
+                creds_json,
+                scopes=["https://www.googleapis.com/auth/spreadsheets"]
+            )
+        
         return build("sheets", "v4", credentials=creds)
     except Exception as e:
         raise Exception(f"Failed to initialize Google Sheets client: {str(e)}")
-
 
 def verify_sheet_connection(sheet_id, tab_name):
     """Verify Google Sheet + tab exist and check for required columns."""
