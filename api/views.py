@@ -114,11 +114,14 @@ class UserManagementView(APIView):
         data = request.data.copy()
         
         # Generate password if not provided
+        temp_password = None
         if not data.get("password"):
             temp_password = "".join(
                 random.choices(string.ascii_letters + string.digits, k=12)
             )
             data["password"] = temp_password
+        else:
+            temp_password = data.get("password")
         
         # Force role to agent for safety
         data["role"] = data.get("role", "agent")
@@ -128,9 +131,8 @@ class UserManagementView(APIView):
         if serializer.is_valid():
             user = serializer.save()
             response_data = UserSerializer(user).data
-            # Include temp password in response if it was generated
-            if not request.data.get("password"):
-                response_data["temp_password"] = temp_password
+            # Always include the password that was set
+            response_data["temp_password"] = temp_password
             return Response(response_data, status=status.HTTP_201_CREATED)
         
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
@@ -153,15 +155,49 @@ class UserManagementView(APIView):
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
     def delete(self, request, user_id):
-        """Deactivate a user (soft delete)."""
+        """Delete a user permanently."""
         try:
             user = User.objects.get(id=user_id)
-            user.status = "inactive"
-            user.save()
-            return Response({"message": "User deactivated successfully"})
+            user_email = user.email
+            user.delete()
+            return Response({
+                "message": f"User {user_email} deleted successfully"
+            })
         except User.DoesNotExist:
             return Response(
                 {"error": "User not found"}, 
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+
+# ----------------------
+# Toggle User Status (Activate/Deactivate)
+# ----------------------
+class ToggleUserStatusView(APIView):
+    permission_classes = [permissions.IsAuthenticated, IsAdmin]
+
+    def patch(self, request, user_id):
+        """Toggle user status between active and inactive."""
+        try:
+            user = User.objects.get(id=user_id)
+            
+            # Toggle status
+            if user.status == "active":
+                user.status = "inactive"
+                message = f"User {user.name} deactivated"
+            else:
+                user.status = "active"
+                message = f"User {user.name} activated"
+            
+            user.save()
+            
+            return Response({
+                "message": message,
+                "user": UserSerializer(user).data
+            })
+        except User.DoesNotExist:
+            return Response(
+                {"error": "User not found"},
                 status=status.HTTP_404_NOT_FOUND
             )
 
